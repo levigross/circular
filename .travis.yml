@@ -15,4 +15,6 @@ script:
   - diff -u <(echo -n) <(go vet ./...)
   - diff -u <(echo -n) <(golint ./...)
   - go test -v -race ./...
+  - go test -benchmem -bench ./...
+
 
