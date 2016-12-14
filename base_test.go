@@ -36,6 +36,22 @@ func TestBasicBuffer(t *testing.T) {
 	}
 }
 
+func TestBufferOverCap(t *testing.T) {
+	myBuf := NewBuffer(100)
+	for i := 0; i != 1000; i++ {
+		myBuf.Push(unsafe.Pointer(&i))
+	}
+	for i := 0; i != 1000; i++ {
+		if i%2 == 0 {
+			myBuf.Push(unsafe.Pointer(&i))
+		}
+		myBuf.Pop()
+	}
+	if myBuf.Size() != 500 {
+		t.Error("Buffer size should be 500", myBuf.Size())
+	}
+}
+
 func TestBufferOps(t *testing.T) {
 	myBuf := NewBuffer(100)
 	for i := 0; i != 100; i++ {
@@ -66,6 +82,31 @@ type foo struct {
 	count       int
 	stringCount string
 	derBytes    []byte
+}
+
+func TestConcurrentReadWrite(t *testing.T) {
+	doneChan := make(chan struct{})
+	myBuf := NewBuffer(100)
+	go func() {
+		for i := 0; i != 10000; i++ {
+			myInt := i
+			myBuf.Push(unsafe.Pointer(&myInt))
+		}
+
+		for i := 0; i != 10000; i++ {
+			_ = *(*int)(myBuf.Pop())
+		}
+
+		close(doneChan)
+	}()
+	anInt := 294
+	select {
+	case <-doneChan:
+		return
+	default:
+		myBuf.Push(unsafe.Pointer(&anInt))
+		_ = *(*int)(myBuf.Pop())
+	}
 }
 
 func TestBufferCustomStruct(t *testing.T) {
