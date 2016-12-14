@@ -1,0 +1,18 @@
+language: go
+
+matrix:
+  fast_finish: true
+  include:
+  - go: 1.7
+  - go: master
+  allow_failures:
+  - go: master
+before_install:
+  - go get -u -v github.com/golang/lint/golint
+
+script:
+  - diff -u <(echo -n) <(gofmt -s -d ./)
+  - diff -u <(echo -n) <(go vet ./...)
+  - diff -u <(echo -n) <(golint ./...)
+  - go test -v -race ./...
+
