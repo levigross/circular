@@ -15,53 +15,64 @@
 package circular
 
 import (
+	"fmt"
 	"sync/atomic"
 	"unsafe"
 )
 
 // Buffer is our circular buffer
 type Buffer struct {
-	read, write uint32
+	read, write uint64
 	data        []unsafe.Pointer
 }
 
-// NewBuffer allocates a new buffer
-func NewBuffer(size uint32) *Buffer {
+// NewBuffer allocates a new buffer. This number needs to be a power of two
+// or the buffer won't allocate.
+func NewBuffer(size uint64) (*Buffer, error) {
+	if size&(size-1) != 0 {
+		return nil, fmt.Errorf("%d is not a power of two", size)
+	}
 	b := &Buffer{data: make([]unsafe.Pointer, size)}
-	return b
+	return b, nil
 }
 
 // Size is the size of the buffer
-func (b Buffer) Size() uint32 {
-	return atomic.LoadUint32(&b.write) - atomic.LoadUint32(&b.read)
+func (b Buffer) Size() uint64 {
+	return atomic.LoadUint64(&b.write) - atomic.LoadUint64(&b.read)
 }
 
 // Empty will tell you if the buffer is empty
 func (b Buffer) Empty() bool {
-	return atomic.LoadUint32(&b.write) == atomic.LoadUint32(&b.read)
+	return atomic.LoadUint64(&b.write) == atomic.LoadUint64(&b.read)
 }
 
 // Full returns true if the buffer is "full"
 func (b Buffer) Full() bool {
-	return b.Size() == uint32(len(b.data))
+	return b.Size() == uint64(len(b.data))
 }
 
-func (b Buffer) mask(val uint32) uint32 {
-	return val % uint32(len(b.data))
+func (b Buffer) mask(val uint64) uint64 {
+	return val & uint64(len(b.data)-1)
 }
 
 // Push places an item onto the ring buffer
 func (b *Buffer) Push(object unsafe.Pointer) {
-	atomic.StorePointer(&b.data[b.mask(atomic.LoadUint32(&b.write))], object)
-	atomic.AddUint32(&b.write, 1)
+	for atomic.CompareAndSwapUint64(&b.write, atomic.LoadUint64(&b.write), atomic.LoadUint64(&b.write)+1) {
+		atomic.StorePointer(&b.data[b.mask(atomic.LoadUint64(&b.write)-1)], object)
+		break
+	}
 }
 
 // Pop returns the next item on the ring buffer
 func (b *Buffer) Pop() unsafe.Pointer {
-	if b.Empty() {
+	if atomic.LoadUint64(&b.write) == atomic.LoadUint64(&b.read) {
 		return nil
 	}
-	val := atomic.LoadPointer(&b.data[b.mask(atomic.LoadUint32(&b.read))])
-	atomic.AddUint32(&b.read, 1)
+	var val unsafe.Pointer
+	for atomic.CompareAndSwapPointer(&val, val, b.data[b.mask(atomic.LoadUint64(&b.read))]) {
+		atomic.AddUint64(&b.read, 1)
+		break
+	}
+
 	return val
 }
