@@ -57,9 +57,6 @@ func TestBufferOverCap(t *testing.T) {
 	if !myBuf.Empty() && myBuf.Size() == 0 {
 		t.Error("Buffer not empty or size is more than 0", myBuf.Empty(), myBuf.Size())
 	}
-	//if myBuf.Size() != 500 {
-	//		t.Error("Buffer size should be 500", myBuf.Size())
-	//	}
 }
 
 func TestBufferOps(t *testing.T) {
@@ -86,9 +83,6 @@ func TestBufferOps(t *testing.T) {
 		t.Error("Buffer isn't empty", myBuf.Size())
 	}
 
-	if val := myBuf.Pop(); val != nil {
-		t.Error("Val isn't nil", val)
-	}
 }
 
 type foo struct {
@@ -98,29 +92,31 @@ type foo struct {
 }
 
 func TestConcurrentReadWrite(t *testing.T) {
-	t.SkipNow()
 	doneChan := make(chan struct{})
 	myBuf, _ := NewBuffer(128)
 	go func() {
-		for i := 0; i != 10000; i++ {
-			myInt := i
-			myBuf.Push(unsafe.Pointer(&myInt))
+		for {
+			select {
+			case <-doneChan:
+				return
+			default:
+				myInt := 5436
+				myBuf.Push(unsafe.Pointer(&myInt))
+			}
 		}
-
-		for i := 0; i != 10000; i++ {
-			_ = *(*int)(myBuf.Pop())
-		}
-
 	}()
 	go func() {
-		anInt := 294
-		select {
-		case <-doneChan:
-			return
-		default:
-			myBuf.Push(unsafe.Pointer(&anInt))
-			_ = *(*int)(myBuf.Pop())
+		for {
+			anInt := 294
+			select {
+			case <-doneChan:
+				return
+			default:
+				myBuf.Push(unsafe.Pointer(&anInt))
+				myBuf.Pop()
+			}
 		}
+
 	}()
 	select {
 	case <-time.After(time.Second):

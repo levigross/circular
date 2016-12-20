@@ -16,6 +16,7 @@ package circular
 
 import (
 	"fmt"
+	"runtime"
 	"sync/atomic"
 	"unsafe"
 )
@@ -23,6 +24,7 @@ import (
 // Buffer is our circular buffer
 type Buffer struct {
 	read, write uint64
+	writeAt     uint32
 	data        []unsafe.Pointer
 }
 
@@ -65,8 +67,8 @@ func (b *Buffer) Push(object unsafe.Pointer) {
 
 // Pop returns the next item on the ring buffer
 func (b *Buffer) Pop() unsafe.Pointer {
-	if atomic.LoadUint64(&b.write) == atomic.LoadUint64(&b.read) {
-		return nil
+	for atomic.LoadUint64(&b.write) == atomic.LoadUint64(&b.read) {
+		runtime.Gosched()
 	}
 	var val unsafe.Pointer
 	for atomic.CompareAndSwapPointer(&val, val, b.data[b.mask(atomic.LoadUint64(&b.read))]) {
