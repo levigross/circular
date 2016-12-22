@@ -17,16 +17,15 @@ package circular
 import (
 	"bytes"
 	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 	"unsafe"
 )
 
 func TestBasicBuffer(t *testing.T) {
-	myBuf, err := NewBuffer(128)
-	if err != nil {
-		t.Fatal("Unable to create buffer", err)
-	}
+	myBuf := NewBuffer(128)
+
 	if !myBuf.Empty() {
 		t.Error("My empty buffer is not empty", myBuf.Size())
 	}
@@ -41,10 +40,8 @@ func TestBasicBuffer(t *testing.T) {
 }
 
 func TestBufferOverCap(t *testing.T) {
-	myBuf, err := NewBuffer(128)
-	if err != nil {
-		t.Fatal("Unable to create buffer", err)
-	}
+	myBuf := NewBuffer(128)
+
 	for i := 0; i != 1000; i++ {
 		myBuf.Push(unsafe.Pointer(&i))
 	}
@@ -60,10 +57,7 @@ func TestBufferOverCap(t *testing.T) {
 }
 
 func TestBufferOps(t *testing.T) {
-	myBuf, err := NewBuffer(128)
-	if err != nil {
-		t.Fatal("Unable to create buffer", err)
-	}
+	myBuf := NewBuffer(128)
 	for i := 0; i != 128; i++ {
 		myInt := i
 		myBuf.Push(unsafe.Pointer(&myInt))
@@ -93,7 +87,7 @@ type foo struct {
 
 func TestConcurrentReadWrite(t *testing.T) {
 	doneChan := make(chan struct{})
-	myBuf, _ := NewBuffer(128)
+	myBuf := NewBuffer(128)
 	go func() {
 		for {
 			select {
@@ -102,6 +96,9 @@ func TestConcurrentReadWrite(t *testing.T) {
 			default:
 				myInt := 5436
 				myBuf.Push(unsafe.Pointer(&myInt))
+				if rand.Int()%2 == 0 {
+					myBuf.Pop()
+				}
 			}
 		}
 	}()
@@ -124,6 +121,44 @@ func TestConcurrentReadWrite(t *testing.T) {
 	}
 }
 
+func TestLargeConcurrentReadWrite(t *testing.T) {
+	doneChan := make(chan struct{})
+	myBuf := NewBuffer(128)
+	for i := 0; i < 100; i++ {
+		go func() {
+			for {
+				select {
+				case <-doneChan:
+					return
+				default:
+					myInt := 5436
+					myBuf.Push(unsafe.Pointer(&myInt))
+					if rand.Int()%2 == 0 {
+						myBuf.Pop()
+					}
+				}
+			}
+		}()
+		go func() {
+			for {
+				anInt := 294
+				select {
+				case <-doneChan:
+					return
+				default:
+					myBuf.Push(unsafe.Pointer(&anInt))
+					myBuf.Pop()
+				}
+			}
+
+		}()
+	}
+	select {
+	case <-time.After(time.Second):
+		close(doneChan)
+	}
+}
+
 func TestBufferCustomStruct(t *testing.T) {
 	vals := make([]foo, 100)
 	for i := range vals {
@@ -131,10 +166,8 @@ func TestBufferCustomStruct(t *testing.T) {
 		vals[i].stringCount = fmt.Sprint(i)
 		vals[i].derBytes = []byte(vals[i].stringCount + vals[i].stringCount)
 	}
-	myBuf, err := NewBuffer(128)
-	if err != nil {
-		t.Fatal("Unable to create buffer", err)
-	}
+	myBuf := NewBuffer(128)
+
 	for i := range vals {
 		myBuf.Push(unsafe.Pointer(&vals[i]))
 	}

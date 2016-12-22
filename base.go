@@ -15,7 +15,6 @@
 package circular
 
 import (
-	"fmt"
 	"runtime"
 	"sync/atomic"
 	"unsafe"
@@ -24,19 +23,22 @@ import (
 // Buffer is our circular buffer
 type Buffer struct {
 	read, write uint64
+	lastWrite   uint64
 	maskVal     uint64
-	writing     uint32
 	data        []unsafe.Pointer
 }
 
 // NewBuffer allocates a new buffer. This number needs to be a power of two
 // or the buffer won't allocate.
-func NewBuffer(size uint64) (*Buffer, error) {
+func NewBuffer(size uint64) *Buffer {
 	if size&(size-1) != 0 {
-		return nil, fmt.Errorf("%d is not a power of two", size)
+		return nil
 	}
-	b := &Buffer{data: make([]unsafe.Pointer, size), maskVal: size - 1}
-	return b, nil
+	return &Buffer{
+		read:    1,
+		write:   1,
+		data:    make([]unsafe.Pointer, size),
+		maskVal: size - 1}
 }
 
 // Size is the size of the buffer
@@ -60,14 +62,11 @@ func (b Buffer) mask(val uint64) uint64 {
 
 // Push places an item onto the ring buffer
 func (b *Buffer) Push(object unsafe.Pointer) {
-	atomic.AddUint32(&b.writing, 1)
-cas:
-	for atomic.CompareAndSwapUint64(&b.write, atomic.LoadUint64(&b.write), atomic.LoadUint64(&b.write)+1) {
-		atomic.StorePointer(&b.data[b.mask(atomic.LoadUint64(&b.write)-1)], object)
-		atomic.AddUint32(&b.writing, ^uint32(0))
-		return
+	index := atomic.AddUint64(&b.write, 1) - 1
+	atomic.StorePointer(&b.data[index&b.maskVal], object)
+	for !atomic.CompareAndSwapUint64(&b.lastWrite, index-1, index) {
+		runtime.Gosched()
 	}
-	goto cas
 }
 
 // Pop returns the next item on the ring buffer
@@ -75,14 +74,10 @@ func (b *Buffer) Pop() unsafe.Pointer {
 	for atomic.LoadUint64(&b.write) <= atomic.LoadUint64(&b.read) {
 		runtime.Gosched()
 	}
-	var val unsafe.Pointer
-	for atomic.CompareAndSwapUint64(&b.read, b.read, b.read+1) {
-		for atomic.LoadUint64(&b.write) == atomic.LoadUint64(&b.read) && atomic.LoadUint32(&b.writing) < 0 {
-			runtime.Gosched()
-		}
-		val = atomic.LoadPointer(&b.data[b.mask(atomic.LoadUint64(&b.read)-1)])
-		break
-	}
 
-	return val
+	index := atomic.AddUint64(&b.read, 1) - 1
+	for index > atomic.LoadUint64(&b.write) {
+		runtime.Gosched()
+	}
+	return atomic.LoadPointer(&b.data[index&b.maskVal])
 }
